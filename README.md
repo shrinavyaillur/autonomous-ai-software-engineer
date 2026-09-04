@@ -38,3 +38,9 @@ User Requirement
 
 ✅ Final Result
 
+\## 📸 Dashboard
+
+
+
+!\[Autonomous AI Software Engineer Dashboard](frontend/public/dashboard.png)
+
