@@ -24,6 +24,7 @@ def test_health_check():
 def test_workspace_endpoints():
     client = TestClient(app)
 
+    # Check workspace files endpoint
     response = client.get("/api/workspace/files?path=.")
 
     assert response.status_code == 200
@@ -37,6 +38,7 @@ def test_workspace_endpoints():
         f"Found {len(data['files'])} entries",
     )
 
+    # Check workspace file reading
     response = client.get(
         "/api/workspace/file?path=backend/config.py"
     )
@@ -53,7 +55,14 @@ def test_workspace_endpoints():
     )
 
 
-async def test_agent_execution():
+def test_agent_execution():
+    """
+    Test the Agent Engine without making a real Gemini API call.
+
+    The LLM planner, Coding Agent, and Testing Agent are mocked so
+    this test remains deterministic and does not consume API quota.
+    """
+
     task = agent_engine.create_task(
         goal="Create a simple Python calculator."
     )
@@ -76,13 +85,15 @@ async def test_agent_execution():
         ],
         "risk_analysis": [],
         "verification_plan": [
-            "Run pytest"
+            "Run pytest",
         ],
     }
 
     mock_coding_result = {
         "success": True,
-        "created_files": ["demo_calculator.py"],
+        "created_files": [
+            "demo_calculator.py",
+        ],
         "step_results": [],
         "errors": [],
     }
@@ -90,8 +101,12 @@ async def test_agent_execution():
     mock_testing_result = {
         "success": True,
         "workspace": "workspace",
-        "source_files": ["demo_calculator.py"],
-        "test_files": ["tests/test_demo_calculator.py"],
+        "source_files": [
+            "demo_calculator.py",
+        ],
+        "test_files": [
+            "tests/test_demo_calculator.py",
+        ],
         "generation": {
             "success": True,
             "generated_tests": [],
@@ -116,9 +131,13 @@ async def test_agent_execution():
         "backend.agent_engine.testing_agent.test_workspace",
         return_value=mock_testing_result,
     ):
-        await agent_engine.execute_task(task.task_id)
+        asyncio.run(
+            agent_engine.execute_task(task.task_id)
+        )
 
-    updated_task = agent_engine.get_task(task.task_id)
+    updated_task = agent_engine.get_task(
+        task.task_id
+    )
 
     assert updated_task is not None
 
@@ -128,7 +147,9 @@ async def test_agent_execution():
 
     assert "demo_calculator.py" in updated_task.created_files
 
-    print("[PASS] Agent Execution Workflow Passed!")
+    print(
+        "[PASS] Agent Execution Workflow Passed!"
+    )
 
     for step in updated_task.steps:
         print(
@@ -138,11 +159,14 @@ async def test_agent_execution():
 
 
 if __name__ == "__main__":
-    print("--- Running Autonomous AI Backend Verification ---")
+    print(
+        "--- Running Autonomous AI Backend Verification ---"
+    )
 
     test_health_check()
     test_workspace_endpoints()
+    test_agent_execution()
 
-    asyncio.run(test_agent_execution())
-
-    print("--- All Backend Tests Succeeded! ---")
+    print(
+        "--- All Backend Tests Succeeded! ---"
+    )

@@ -1,49 +1,137 @@
 import json
+import os
+import urllib.request
+
+import pytest
+
 from backend.llm_service import llm_service
 
+
+@pytest.mark.live
 def test_gemini_live():
+    """
+    Live Gemini API verification.
+
+    Run this test only when RUN_LIVE_GEMINI=1 is set.
+    This prevents normal pytest runs from consuming API quota.
+    """
+
+    if os.getenv("RUN_LIVE_GEMINI") != "1":
+        pytest.skip(
+            "Live Gemini test skipped. "
+            "Set RUN_LIVE_GEMINI=1 to run it."
+        )
+
     print("--- Testing Live Gemini API Connection ---")
-    if not llm_service.is_configured():
-        print("[FAIL] Gemini API Key is not configured in .env or environment variables.")
-        print("       Please add 'GEMINI_API_KEY=AIzaSy...' to your .env file in the project root.")
-        return False
+
+    assert llm_service.is_configured(), (
+        "Gemini API key is not configured. "
+        "Set GEMINI_API_KEY in the local .env file."
+    )
 
     print(f"Detected Provider: {llm_service.provider}")
     print(f"Target Model:     {llm_service.model}")
-    masked_key = f"{llm_service.api_key[:4]}...{llm_service.api_key[-4:]}" if len(llm_service.api_key) > 8 else "***"
-    print(f"API Key Status:   Loaded securely ({masked_key})")
-    
-    # Discovery test
-    try:
-        import urllib.request
-        disc_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={llm_service.api_key}"
-        req = urllib.request.Request(disc_url)
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode())
-            model_names = [m["name"] for m in data.get("models", [])]
-            print(f"Available Gemini Models for this key: {model_names[:5]}")
-    except Exception as err:
-        print(f"Model discovery error: {err}")
 
-    prompt = "Create a simple Python REST API for a task calculator."
-    print(f"\nSending requirement to Gemini:\n  '{prompt}'\n")
-    
+    api_key = llm_service.api_key
+
+    masked_key = (
+        f"{api_key[:4]}...{api_key[-4:]}"
+        if len(api_key) > 8
+        else "***"
+    )
+
+    print(f"API Key Status:   Loaded securely ({masked_key})")
+
+    # Model discovery test
+    try:
+        discovery_url = (
+            "https://generativelanguage.googleapis.com/"
+            f"v1beta/models?key={api_key}"
+        )
+
+        request = urllib.request.Request(discovery_url)
+
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        model_names = [
+            model["name"]
+            for model in data.get("models", [])
+        ]
+
+        print(
+            "Available Gemini Models for this key:",
+            model_names[:5],
+        )
+
+    except Exception as error:
+        pytest.fail(
+            f"Gemini model discovery failed: {error}"
+        )
+
+    prompt = (
+        "Create a simple Python REST API "
+        "for a task calculator."
+    )
+
+    print(
+        f"\nSending requirement to Gemini:\n  '{prompt}'\n"
+    )
+
     result = llm_service.generate_plan(prompt)
-    if result["success"]:
-        print("[SUCCESS] Gemini API Connection is WORKING! Live response received.")
-        print("\n--- Generated Software Development Plan ---")
-        plan = result["plan"]
-        print(f"Goal:         {plan.get('goal')}")
-        print(f"Architecture: {', '.join(plan.get('architecture', []))}")
-        print(f"Planned Steps ({len(plan.get('execution_steps', []))} steps):")
-        for step in plan.get("execution_steps", []):
-            print(f"  - Step {step.get('step')}: [{step.get('role')}] {step.get('action')} -> {step.get('file_target')}")
-        print("------------------------------------------")
-        return True
-    else:
-        print("[FAIL] Connection Error:")
-        print(f"       {result.get('error')}")
-        return False
+
+    assert result["success"], (
+        "Gemini API connection failed: "
+        f"{result.get('error', 'Unknown error')}"
+    )
+
+    print(
+        "[SUCCESS] Gemini API Connection is WORKING! "
+        "Live response received."
+    )
+
+    print("\n--- Generated Software Development Plan ---")
+
+    plan = result["plan"]
+
+    assert isinstance(plan, dict), (
+        "Gemini returned an invalid plan format."
+    )
+
+    print(f"Goal: {plan.get('goal')}")
+
+    architecture = plan.get(
+        "architecture",
+        [],
+    )
+
+    print(
+        "Architecture:",
+        ", ".join(architecture),
+    )
+
+    execution_steps = plan.get(
+        "execution_steps",
+        [],
+    )
+
+    print(
+        f"Planned Steps ({len(execution_steps)} steps):"
+    )
+
+    for step in execution_steps:
+        print(
+            f"  - Step {step.get('step')}: "
+            f"[{step.get('role')}] "
+            f"{step.get('action')} -> "
+            f"{step.get('file_target')}"
+        )
+
+    print("------------------------------------------")
+
 
 if __name__ == "__main__":
+    os.environ["RUN_LIVE_GEMINI"] = "1"
     test_gemini_live()

@@ -1,4 +1,4 @@
-"""Simple math calculator module providing basic arithmetic operations."""
+"""Simple Task Calculator Module providing basic arithmetic operations."""
 
 from typing import Union
 
@@ -6,15 +6,32 @@ Number = Union[int, float]
 
 
 def add(a: Number, b: Number) -> Number:
-    """Return the sum of two numbers."""
+    """Add two numbers and return the result.
+
+    Args:
+        a (Number): First number.
+        b (Number): Second number.
+
+    Returns:
+        Number: Sum of a and b.
+    """
     return a + b
 
 
 def subtract(a: Number, b: Number) -> Number:
-    """Return the difference between two numbers."""
+    """Subtract b from a and return the result.
+
+    Args:
+        a (Number): First number.
+        b (Number): Second number.
+
+    Returns:
+        Number: Difference between a and b.
+    """
     return a - b
 
 
 if __name__ == "__main__":
-    print(f"10 + 5 = {add(10, 5)}")
-    print(f"10 - 5 = {subtract(10, 5)}")
+    print("Calculator Test Run:")
+    print(f"5 + 3 = {add(5, 3)}")
+    print(f"10 - 4 = {subtract(10, 4)}")
