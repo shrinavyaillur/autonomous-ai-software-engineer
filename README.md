@@ -6,17 +6,17 @@ An AI-powered software engineering system that can **plan, generate, test, and d
 
 The system takes a software requirement from the user and passes it through multiple AI agents:
 
-User Requirement  
+**User Requirement**  
 ↓  
-🧠 Planner  
+🧠 **Planner**  
 ↓  
-💻 Coding Agent  
+💻 **Coding Agent**  
 ↓  
-🧪 Testing Agent  
+🧪 **Testing Agent**  
 ↓  
-🔧 Debugging Agent  
+🔧 **Debugging Agent**  
 ↓  
-✅ Final Result
+✅ **Final Result**
 
 ## ✨ Features
 
@@ -36,19 +36,19 @@ User Requirement
 
 ```text
 React + Vite Dashboard
-          │
-          │ REST / WebSocket
-          ↓
+          |
+          | REST / WebSocket
+          v
       FastAPI Server
-          │
-          ↓
+          |
+          v
    Autonomous Agent Engine
-      │      │      │
-      ↓      ↓      ↓
-   Planner  Coder  Tester
-                    │
-                    ↓
+       /    |     \
+      v     v      v
+   Planner Coder  Tester
+                    |
+                    v
                  Debugger
-                    │
-                    ↓
+                    |
+                    v
                  Workspace
