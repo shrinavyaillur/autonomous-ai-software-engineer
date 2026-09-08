@@ -9,8 +9,8 @@ function App() {
   const [taskId, setTaskId] = useState("");
   const [status, setStatus] = useState("IDLE");
   const [steps, setSteps] = useState([]);
-  const [result, setResult] = useState("");
   const [events, setEvents] = useState([]);
+  const [result, setResult] = useState("");
 
   const socketRef = useRef(null);
 
@@ -22,16 +22,95 @@ function App() {
   ];
 
   const addEvent = (message) => {
-    setEvents((previous) => [
-      ...previous,
+    setEvents((prev) => [
+      ...prev,
       `${new Date().toLocaleTimeString()} — ${message}`,
     ]);
   };
 
+  const runDemo = async () => {
+    setStatus("PLANNING");
+    setTaskId("DEMO-0001");
+    setSteps([]);
+    setEvents([]);
+    setResult("");
+
+    addEvent("Demo workflow started");
+    await sleep(800);
+
+    setSteps((prev) => [
+      ...prev,
+      {
+        role: "Architect & Planner",
+        action_description: "Generated development plan for the calculator.",
+      },
+    ]);
+    addEvent("Planner created the software development plan");
+
+    setStatus("EXECUTING");
+    await sleep(1000);
+
+    setSteps((prev) => [
+      ...prev,
+      {
+        role: "Code Builder & Refactor",
+        action_description:
+          "Generated calculator source code inside the workspace.",
+      },
+    ]);
+    addEvent("Coding Agent created calculator.py");
+
+    setStatus("VERIFYING");
+    await sleep(1000);
+
+    setSteps((prev) => [
+      ...prev,
+      {
+        role: "Automated Tester",
+        action_description:
+          "Generated pytest tests and executed the test suite.",
+      },
+    ]);
+    addEvent("Testing Agent executed 8 tests");
+
+    setStatus("DEBUGGING");
+    await sleep(1000);
+
+    addEvent("Debugger detected and fixed a subtraction bug");
+
+    setStatus("VERIFYING");
+    await sleep(800);
+
+    addEvent("Tests rerun after debugging");
+
+    setStatus("COMPLETED");
+
+    setResult(
+      JSON.stringify(
+        {
+          mode: "DEMO",
+          status: "COMPLETED",
+          created_files: [
+            "calculator.py",
+            "tests/test_calculator.py",
+          ],
+          test_result: "8 passed",
+          debugging: "1 bug fixed",
+        },
+        null,
+        2
+      )
+    );
+
+    addEvent("All tests passed — demo workflow completed");
+  };
+
+  const sleep = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
   const connectWebSocket = () => {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(WS_URL);
-
       socketRef.current = socket;
 
       socket.onopen = () => {
@@ -40,13 +119,12 @@ function App() {
       };
 
       socket.onerror = () => {
-        reject(new Error("WebSocket connection failed."));
+        reject(new Error("WebSocket connection failed"));
       };
 
       socket.onmessage = (message) => {
         try {
           const event = JSON.parse(message.data);
-
           const type = event.event_type;
           const payload = event.payload || {};
 
@@ -60,24 +138,22 @@ function App() {
             addEvent(`Task status changed to ${newStatus}`);
           }
 
-          if (type === "STEP_ADDED") {
-            const step = payload.step;
+          if (type === "STEP_ADDED" && payload.step) {
+            setSteps((prev) => [...prev, payload.step]);
 
-            if (step) {
-              setSteps((previous) => [...previous, step]);
-              addEvent(
-                `Agent step: ${
-                  step.action_description || "Step completed"
-                }`
-              );
-            }
+            addEvent(
+              payload.step.action_description ||
+                "Agent step completed"
+            );
           }
 
           if (type === "DEBUGGING_STARTED") {
             setStatus("DEBUGGING");
 
             addEvent(
-              `Debugger started — attempt ${payload.attempt || 1}`
+              `Debugger started — attempt ${
+                payload.attempt || 1
+              }`
             );
           }
 
@@ -91,27 +167,23 @@ function App() {
             setStatus("VERIFYING");
 
             addEvent(
-              `Testing again after debugging attempt ${
+              `Tests running again after debugging attempt ${
                 payload.attempt || 1
               }`
             );
           }
 
           if (type === "FINAL_RESULT") {
-            const finalStatus = payload.status;
-
-            if (finalStatus === "success") {
+            if (payload.status === "success") {
               setStatus("COMPLETED");
               setResult(
                 JSON.stringify(payload, null, 2)
               );
-              addEvent("All tests passed — task completed");
             } else {
               setStatus("FAILED");
               setResult(
                 JSON.stringify(payload, null, 2)
               );
-              addEvent("Task failed");
             }
 
             socket.close();
@@ -119,22 +191,17 @@ function App() {
 
           if (type === "TASK_FAILED") {
             setStatus("FAILED");
-
             setResult(
               payload.error || "The task failed."
             );
-
-            addEvent(`Task failed: ${payload.error || "Unknown error"}`);
-
             socket.close();
           }
         } catch (error) {
-          console.error("Invalid WebSocket event:", error);
+          console.error(
+            "Invalid WebSocket event:",
+            error
+          );
         }
-      };
-
-      socket.onclose = () => {
-        addEvent("Agent stream disconnected");
       };
     });
   };
@@ -152,22 +219,26 @@ function App() {
     setTaskId("");
 
     try {
-      // Connect BEFORE creating the task so we don't miss early events.
       try {
         await connectWebSocket();
-      } catch (error) {
-        addEvent("Live stream unavailable; using task polling.");
+      } catch {
+        addEvent(
+          "Live WebSocket unavailable; using task polling"
+        );
       }
 
-      const response = await fetch(`${API_URL}/api/tasks`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          goal: task,
-        }),
-      });
+      const response = await fetch(
+        `${API_URL}/api/tasks`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            goal: task,
+          }),
+        }
+      );
 
       const data = await response.json();
 
@@ -178,10 +249,8 @@ function App() {
       }
 
       setTaskId(data.task_id);
-
       addEvent(`Task created: ${data.task_id}`);
 
-      // Fallback polling in case WebSocket misses an event.
       watchTask(data.task_id);
     } catch (error) {
       setStatus("FAILED");
@@ -204,7 +273,6 @@ function App() {
           );
         }
 
-        // Polling acts as a safety fallback.
         setStatus(data.status);
         setSteps(data.steps || []);
 
@@ -242,12 +310,12 @@ function App() {
   };
 
   const getStepState = (stepKey) => {
-    if (status === "FAILED") {
-      return "waiting";
-    }
-
     if (status === "COMPLETED") {
       return "done";
+    }
+
+    if (status === "FAILED") {
+      return "waiting";
     }
 
     if (status === stepKey) {
@@ -280,6 +348,7 @@ function App() {
       <header className="header">
         <div>
           <h1>🤖 Autonomous AI Software Engineer</h1>
+
           <p>
             AI that plans, codes, tests and debugs software
           </p>
@@ -298,13 +367,21 @@ function App() {
 
           <textarea
             value={task}
-            onChange={(e) => setTask(e.target.value)}
+            onChange={(e) =>
+              setTask(e.target.value)
+            }
             placeholder="Example: Build a Python calculator with tests"
           />
 
-          <button onClick={runAgent}>
-            🚀 Run AI Engineer
-          </button>
+          <div className="button-row">
+            <button onClick={runAgent}>
+              🚀 Run AI Engineer
+            </button>
+
+            <button onClick={runDemo}>
+              ▶ Run Demo
+            </button>
+          </div>
 
           {taskId && (
             <div className="task-info">
@@ -330,7 +407,9 @@ function App() {
                       {agent.icon}
                     </div>
 
-                    <strong>{agent.name}</strong>
+                    <strong>
+                      {agent.name}
+                    </strong>
 
                     <span>
                       {state === "active"
@@ -341,7 +420,8 @@ function App() {
                     </span>
                   </div>
 
-                  {index < workflow.length - 1 && (
+                  {index <
+                    workflow.length - 1 && (
                     <div className="workflow-arrow">
                       →
                     </div>
@@ -367,7 +447,7 @@ function App() {
                   key={index}
                 >
                   <strong>
-                    {step.role?.replaceAll("_", " ")}
+                    {step.role}
                   </strong>
 
                   <p>
@@ -389,7 +469,9 @@ function App() {
           ) : (
             <div className="output">
               {events.map((event, index) => (
-                <div key={index}>{event}</div>
+                <div key={index}>
+                  {event}
+                </div>
               ))}
             </div>
           )}
@@ -399,7 +481,8 @@ function App() {
           <h2>Agent Output</h2>
 
           <pre className="output">
-            {result || "Waiting for your task..."}
+            {result ||
+              "Waiting for your task..."}
           </pre>
         </section>
       </main>
