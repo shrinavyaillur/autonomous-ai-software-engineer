@@ -1,6 +1,7 @@
+import json
 import subprocess
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 from .config import settings
 from .llm_service import llm_service
@@ -10,46 +11,86 @@ class DebuggingAgent:
     """
     Autonomous Debugging Agent.
 
-    Reads test failures, asks Gemini to identify and fix the problem,
-    then safely writes the corrected file inside the workspace.
+    Reads test failures, asks the configured LLM provider
+    to identify and fix the problem, then safely writes the
+    corrected source file inside the workspace.
     """
 
     def __init__(self, workspace_root: str | None = None):
         self.workspace_root = Path(
             workspace_root
-            or getattr(settings, "GENERATED_WORKSPACE_DIR", "workspace")
+            or getattr(
+                settings,
+                "GENERATED_WORKSPACE_DIR",
+                "workspace",
+            )
         ).resolve()
 
-        self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self.workspace_root.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
     def _safe_path(self, relative_path: str) -> Path:
-        target = (self.workspace_root / relative_path).resolve()
+        """
+        Allow access only inside the generated workspace.
+        """
+        target = (
+            self.workspace_root / relative_path
+        ).resolve()
 
         try:
-            target.relative_to(self.workspace_root)
+            target.relative_to(
+                self.workspace_root
+            )
         except ValueError:
             raise PermissionError(
-                f"Access denied: {relative_path} is outside the workspace."
+                f"Access denied: {relative_path} "
+                "is outside the workspace."
             )
 
         return target
 
     def run_tests(self) -> Dict[str, Any]:
-        """Run pytest and collect the result."""
+        """
+        Run pytest and collect the result.
+        """
         try:
             result = subprocess.run(
-                ["python", "-m", "pytest", "-q"],
-                cwd=str(self.workspace_root),
+                [
+                    "python",
+                    "-m",
+                    "pytest",
+                    "-q",
+                ],
+                cwd=str(
+                    self.workspace_root
+                ),
                 capture_output=True,
                 text=True,
                 timeout=120,
             )
 
             return {
-                "success": result.returncode == 0,
-                "return_code": result.returncode,
+                "success": (
+                    result.returncode == 0
+                ),
+                "return_code": (
+                    result.returncode
+                ),
                 "output": result.stdout,
                 "errors": result.stderr,
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "return_code": -1,
+                "output": "",
+                "errors": (
+                    "Testing timed out after "
+                    "120 seconds."
+                ),
             }
 
         except Exception as exc:
@@ -66,20 +107,53 @@ class DebuggingAgent:
         test_output: str,
         test_errors: str = "",
     ) -> Dict[str, Any]:
-        """Ask Gemini to fix a failing source file."""
-        source_path = self._safe_path(file_path)
+        """
+        Ask the configured LLM provider to fix a
+        failing source file.
+        """
+
+        source_path = self._safe_path(
+            file_path
+        )
 
         if not source_path.exists():
             return {
                 "success": False,
-                "error": f"File does not exist: {file_path}",
+                "error": (
+                    f"File does not exist: "
+                    f"{file_path}"
+                ),
             }
 
-        source_code = source_path.read_text(encoding="utf-8")
+        if not source_path.is_file():
+            return {
+                "success": False,
+                "error": (
+                    f"Path is not a file: "
+                    f"{file_path}"
+                ),
+            }
 
-        prompt = f"""
-You are an expert Python debugging engineer.
+        source_code = source_path.read_text(
+            encoding="utf-8"
+        )
 
+        system_prompt = (
+            "You are an expert autonomous "
+            "software debugging engineer. "
+            "Analyze the failing Python program "
+            "and fix the root cause. "
+            "Return ONLY valid JSON with exactly "
+            "these keys: "
+            "'file_target', "
+            "'content', "
+            "and 'explanation'. "
+            "'content' must contain the complete "
+            "corrected source code. "
+            "Do not include markdown outside the JSON."
+        )
+
+        user_prompt = f"""
 A generated Python program failed its tests.
 
 File:
@@ -94,44 +168,92 @@ Test output:
 Test errors:
 {test_errors}
 
-Find the root cause and return ONLY valid JSON with:
-{{
-  "file_target": "{file_path}",
-  "content": "complete corrected source code",
-  "explanation": "short explanation of the bug and fix"
-}}
+Find the root cause and provide the complete
+corrected source code.
 
-Do not include markdown outside the JSON.
+The file_target must be:
+{file_path}
 """
 
         try:
-            result = llm_service._call_gemini(
-                "You are an expert autonomous software debugging agent.",
-                prompt,
+            # IMPORTANT:
+            # Use the active provider (OpenRouter/Gemini/etc.)
+            # instead of forcing Gemini.
+            result = llm_service._call_llm(
+                system_prompt,
+                user_prompt,
             )
 
             if not result["success"]:
                 return {
                     "success": False,
-                    "error": result.get("error", "Gemini debugging failed"),
+                    "error": result.get(
+                        "error",
+                        "LLM debugging failed.",
+                    ),
                 }
 
-            data = result["plan"]
+            data = result.get(
+                "plan"
+            )
 
             if isinstance(data, str):
-                import json
                 data = json.loads(data)
 
-            corrected_code = data["content"]
+            if not isinstance(data, dict):
+                return {
+                    "success": False,
+                    "error": (
+                        "LLM returned an invalid "
+                        "debugging response."
+                    ),
+                }
+
+            corrected_code = data.get(
+                "content"
+            )
+
+            if corrected_code is None:
+                return {
+                    "success": False,
+                    "error": (
+                        "LLM did not return "
+                        "corrected source code."
+                    ),
+                }
+
+            corrected_code = str(
+                corrected_code
+            )
 
             # Only write inside the workspace.
-            target = self._safe_path(file_path)
-            target.write_text(corrected_code, encoding="utf-8")
+            target = self._safe_path(
+                file_path
+            )
+
+            target.write_text(
+                corrected_code,
+                encoding="utf-8",
+            )
 
             return {
                 "success": True,
                 "file_target": file_path,
-                "explanation": data.get("explanation", ""),
+                "provider": llm_service.provider,
+                "model": llm_service.model,
+                "explanation": data.get(
+                    "explanation",
+                    "Source file corrected.",
+                ),
+            }
+
+        except json.JSONDecodeError as exc:
+            return {
+                "success": False,
+                "error": (
+                    "LLM returned invalid JSON: "
+                    f"{exc}"
+                ),
             }
 
         except Exception as exc:
@@ -140,19 +262,31 @@ Do not include markdown outside the JSON.
                 "error": str(exc),
             }
 
-    def debug_until_pass(self, file_path: str, max_attempts: int = 3) -> Dict[str, Any]:
+    def debug_until_pass(
+        self,
+        file_path: str,
+        max_attempts: int = 3,
+    ) -> Dict[str, Any]:
         """
-        Run tests, ask Gemini to fix failures, and retry.
+        Run tests, ask the configured LLM to fix
+        failures, and retry until the tests pass
+        or the maximum number of attempts is reached.
         """
+
         history = []
 
-        for attempt in range(1, max_attempts + 1):
+        for attempt in range(
+            1,
+            max_attempts + 1,
+        ):
             test_result = self.run_tests()
 
-            history.append({
-                "attempt": attempt,
-                "test_result": test_result,
-            })
+            history.append(
+                {
+                    "attempt": attempt,
+                    "test_result": test_result,
+                }
+            )
 
             if test_result["success"]:
                 return {
@@ -163,14 +297,20 @@ Do not include markdown outside the JSON.
 
             debug_result = self.debug_file(
                 file_path=file_path,
-                test_output=test_result["output"],
-                test_errors=test_result["errors"],
+                test_output=test_result[
+                    "output"
+                ],
+                test_errors=test_result[
+                    "errors"
+                ],
             )
 
-            history.append({
-                "attempt": attempt,
-                "debug_result": debug_result,
-            })
+            history.append(
+                {
+                    "attempt": attempt,
+                    "debug_result": debug_result,
+                }
+            )
 
             if not debug_result["success"]:
                 return {
